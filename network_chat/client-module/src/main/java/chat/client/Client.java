@@ -17,45 +17,87 @@ public class Client {
         System.out.println("Enter your name:");
         name = reader.readLine();
 
-        // Получение порта через SettingsReader
+        // Получение порта через PortReader
         int port = PortReader.readPort();
         // Подключение к серверу
         Socket socket = new Socket("localhost", port);
         PrintWriter outClient = new PrintWriter(socket.getOutputStream(), true);
         BufferedReader inClient = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-        // Логирование сообщений
-        logMessage("Connected to server");
-        // Отправляем имя клиентом на сервер
+        // Логирование соединения с сервером
+        logMessage(name + " is connecting");
+        // Отправляем имя клиента на сервер
         outClient.println(name);
+        // Клиент приглашается к началу общения в чате
+        System.out.print(name + ", write here for starting conversation: ");
+        System.out.println();
 
-        // Чтение сообщений с клавиатуры
-        String message;
-        while (true) {
-            System.out.print(name + ": ");
-            message = reader.readLine();
-            if (message.equalsIgnoreCase("/exit")) {
-                break;
+        // Поток для получения сообщений от сервера
+        Thread receiveThread = new Thread(() -> {
+            try {
+                String serverMessage;
+                while (!Thread.currentThread().isInterrupted() && (serverMessage = inClient.readLine()) != null) {
+                    // Печатаем и логируем сообщения от других клиентов
+                    System.out.println(serverMessage);
+                    logMessage(name + " Rcvd: " + serverMessage);
+                }
+            } catch (IOException e) {
+                if (!Thread.currentThread().isInterrupted()) {
+                    e.printStackTrace();
+                }
             }
+        });
 
-            outClient.println(message);
-            // logMessage(name + ": " + message);
+        // Поток для отправки сообщений на сервер
+        Thread sendThread = new Thread(() -> {
+            try {
+                String message;
+                while (true) {
+                    message = reader.readLine();
+                    if (message.equalsIgnoreCase("/exit")) {
+                        outClient.println("/exit");  // Отправляем команду на сервер
+                        break;
+                    }
+                    // Отправляем сообщение и логируем его
+                    logMessage(name + " Sent: " + message);
+                    outClient.println(message);
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
 
-            String serverMessage = inClient.readLine();
-            System.out.println(serverMessage);
+        // Запуск потоков
+        receiveThread.start();  // Поток для получения сообщений
+        sendThread.start();  // Поток для отправки сообщений
+
+        // Ждем завершения потока отправки
+        try {
+            sendThread.join();  // Ждем завершения потока отправки
+        } catch (InterruptedException e) {
+            e.printStackTrace();
         }
 
-        socket.close();
+        // Завершаем работу потока получения сообщений
+        try {
+            receiveThread.interrupt();  // Останавливаем поток получения сообщений
+            inClient.close();
+            outClient.close();
+            socket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
+
     // Метод для логирования сообщений
     private static void logMessage(String message) {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(LOG_FILE, true))) {
             String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-            writer.write("[" + timestamp + "] " + message);
+            // Логируем сообщение с пометкой [CLIENT]
+            writer.write("[" + timestamp + "] [CLIENT] " + message);
             writer.newLine();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 }
-
